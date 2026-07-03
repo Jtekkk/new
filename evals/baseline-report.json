@@ -1,0 +1,33 @@
+{
+  "min_score": 80,
+  "root": ".claude/skills",
+  "schema_version": 1,
+  "skills": [
+    {
+      "errors": 0,
+      "infos": 0,
+      "passed": true,
+      "path": ".claude/skills/commit-helper/SKILL.md",
+      "score": 100,
+      "skill": "commit-helper",
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "infos": 0,
+      "passed": true,
+      "path": ".claude/skills/skill-creator/SKILL.md",
+      "score": 100,
+      "skill": "skill-creator",
+      "warnings": 0
+    }
+  ],
+  "summary": {
+    "failing": 0,
+    "max_score_seen": 100,
+    "mean_score": 100.0,
+    "min_score_seen": 100,
+    "passing": 2,
+    "skills": 2
+  }
+}

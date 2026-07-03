@@ -1,0 +1,6 @@
+# Personal, per-session Claude Code overrides — never committed.
+.claude/settings.local.json
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/validate-skill.sh\"",
+            "statusMessage": "Validating SKILL.md against skill-creator rubric"
+          }
+        ]
+      }
+    ]
+  }
+}
