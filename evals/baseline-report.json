@@ -16,6 +16,15 @@
       "errors": 0,
       "infos": 0,
       "passed": true,
+      "path": ".claude/skills/kinetic-typography-video/SKILL.md",
+      "score": 100,
+      "skill": "kinetic-typography-video",
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "infos": 0,
+      "passed": true,
       "path": ".claude/skills/skill-creator/SKILL.md",
       "score": 100,
       "skill": "skill-creator",
@@ -27,7 +36,7 @@
     "max_score_seen": 100,
     "mean_score": 100.0,
     "min_score_seen": 100,
-    "passing": 2,
-    "skills": 2
+    "passing": 3,
+    "skills": 3
   }
 }
