@@ -74,14 +74,17 @@ message…") reliably fires. That is why `description_has_trigger` and
 `.claude/hooks/validate-skill.sh` is registered as a `PostToolUse` hook for the
 `Write` and `Edit` tools in `.claude/settings.json`. On every write it:
 
-1. Reads the hook JSON from stdin and extracts the edited file path
-   (`.tool_input.file_path`).
-2. Exits `0` immediately unless that path ends in `SKILL.md`.
-3. Runs `validate_skill.py` on the file.
+1. Reads the hook JSON from stdin (via `hook_entry.py`) and extracts the edited
+   file path (`.tool_input.file_path`).
+2. Exits `0` immediately unless the file is literally named `SKILL.md` (so
+   documents like `WRITING-A-SKILL.md` are untouched) and is not under a
+   `tests/fixtures/` tree.
+3. Runs the rubric on the file (`hook_entry.py` calls `lint_file` directly — the
+   same engine `validate_skill.py` uses).
 4. If there are **error**-severity failures, it prints them to stderr and exits
    `2`. For a `PostToolUse` hook, exit code 2 feeds stderr back to the model as
    feedback, so the broken skill gets fixed in the same turn.
-5. Warnings alone print to stderr as advice but exit `0` (non-blocking) — the
+5. Warnings alone print to **stdout** as advice and exit `0` (non-blocking) — the
    loop nudges without nagging.
 
 This is the closing move of the loop: after skill-creator builds a skill, the

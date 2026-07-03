@@ -38,21 +38,27 @@ KEBAB_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 HEADING_RE = re.compile(r"^#{1,6}\s+\S", re.M)
 
 # An activation cue: the phrasings that make a description reliably fire.
+# The "for <gerund>" arm is a curated verb list rather than a bare `for \w+ing`
+# so it does not fire on incidental words like "for anything" or "for string
+# parsing" (which would inflate the highest-weighted quality check).
 TRIGGER_RE = re.compile(
     r"\buse (?:this|it)?\s*(?:skill\s+)?(?:when|to|for)\b"
     r"|\bwhen (?:the user|you|working|running|building|creating|writing|"
     r"editing|configuring|debugging|reviewing|generating|setting up|asked)\b"
     r"|\bwhenever\b"
-    r"|\bfor \w+ing\b",
+    r"|\bfor (?:creating|building|writing|generating|configuring|scaffolding|"
+    r"validating|formatting|managing|running|testing|deploying|migrating|"
+    r"refactoring|converting|parsing|editing|updating|checking|handling|"
+    r"processing|summarizing|extracting|searching|reviewing|analyzing|"
+    r"debugging|setting up|working with)\b",
     re.I,
 )
 FIRST_PERSON_RE = re.compile(r"^\s*(?:i |i'|you |your )", re.I)
-# Keyword-style scaffold leftovers (case-insensitive).
+# Scaffold leftovers. TODO/FIXME/XXX are matched case-SENSITIVE (uppercase) so
+# ordinary prose ("the todo list") is not flagged; only literal scaffold markers
+# are. {{…}} and the ALL-CAPS <PLACEHOLDER> form (below) round it out.
 PLACEHOLDER_RE = re.compile(
-    r"\{\{.*?\}\}|\bTODO\b|\bFIXME\b|\bXXX\b|REPLACE_ME|"
-    r"your-skill-name|describe what|one-line description of|fill this in",
-    re.I,
-)
+    r"\{\{.*?\}\}|\bTODO\b|\bFIXME\b|\bXXX\b|REPLACE_ME|your-skill-name")
 # Angle-bracket placeholders must be ALL-CAPS (e.g. <PLACEHOLDER>, <YOUR NAME>)
 # so ordinary lowercase path/command templates like `<name>` or `<branch>` in
 # documentation are not falsely flagged. Case-sensitive on purpose.
@@ -64,6 +70,16 @@ WORKFLOW_RE = re.compile(
 GENERIC_NAMES = {"skill", "my-skill", "new-skill", "example", "test", "untitled", "sample"}
 
 SEVERITIES = ("error", "warn", "info")
+
+# Fenced code blocks (``` … ``` or ~~~ … ~~~). Stripped before the heading /
+# workflow checks so a `# comment` inside a shell block is not mistaken for a
+# Markdown heading. Non-greedy + DOTALL spans from the opening fence to the next
+# matching fence line.
+_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[^\n]*$\n?", re.S | re.M)
+
+
+def strip_code_fences(text: str) -> str:
+    return _FENCE_RE.sub("", text)
 
 
 @dataclass
@@ -120,9 +136,11 @@ def split_frontmatter(text: str):
 def parse_frontmatter(block: str) -> dict:
     """Parse simple ``key: value`` YAML frontmatter without a YAML dependency.
 
-    Handles quoted values and inline ``#`` comment lines. Multi-line/folded
-    scalars are out of scope (skills use single-line name/description), and are
-    simply not recognised, which the rubric then reports as a missing field.
+    Handles surrounding quotes and skips whole-line ``#`` comments. Trailing
+    inline comments are intentionally NOT stripped — ``#`` appears legitimately
+    in descriptions (``Refs: #123``, ``C# tips``), so removing it would corrupt
+    the value. Multi-line/folded scalars are out of scope (skills use
+    single-line name/description) and are reported by the rubric as missing.
     """
     data: dict = {}
     for line in block.split("\n"):
@@ -154,8 +172,10 @@ def lint_text(text: str, path: str = "<memory>", expected_name: Optional[str] = 
     name = (fm.get("name") or "").strip()
     desc = (fm.get("description") or "").strip()
 
-    # Which directory name should `name` equal?
-    if expected_name is None and check_dir:
+    # Which directory name should `name` equal? Only derive one when the path
+    # actually carries a directory component — otherwise an in-memory/sentinel
+    # path ("<memory>") would spuriously compare against the current directory.
+    if expected_name is None and check_dir and os.path.dirname(path):
         expected_name = os.path.basename(os.path.dirname(os.path.abspath(path)))
 
     # ---- structural (error severity) ------------------------------------
@@ -174,8 +194,11 @@ def lint_text(text: str, path: str = "<memory>", expected_name: Optional[str] = 
         add("name_matches_dir", "error", name == expected_name, 3,
             f"`name` ({name!r}) must equal the skill directory name "
             f"({expected_name!r}).")
+    # Cap checks only fire when a description exists; emptiness is owned by
+    # `description_present`, so these don't pile a bogus "too long" message on a
+    # missing description.
     add("description_within_hard_cap", "error",
-        bool(desc) and len(desc) <= DESC_HARD_MAX, 3,
+        (not desc) or len(desc) <= DESC_HARD_MAX, 3,
         f"`description` must be at most {DESC_HARD_MAX} characters "
         "(Claude Code hard limit).")
     add("has_body", "error", bool(body.strip()), 3,
@@ -185,7 +208,7 @@ def lint_text(text: str, path: str = "<memory>", expected_name: Optional[str] = 
     add("description_min_length", "warn", bool(desc) and len(desc) >= DESC_MIN, 2,
         f"`description` should be at least {DESC_MIN} chars so it can state when "
         "to use the skill.")
-    add("description_soft_cap", "warn", bool(desc) and len(desc) <= DESC_SOFT_MAX, 1,
+    add("description_soft_cap", "warn", (not desc) or len(desc) <= DESC_SOFT_MAX, 1,
         f"`description` is long (>{DESC_SOFT_MAX} chars); tighten it or move "
         "detail into the body.")
     add("description_has_trigger", "warn",
@@ -193,12 +216,13 @@ def lint_text(text: str, path: str = "<memory>", expected_name: Optional[str] = 
         "`description` should name a trigger condition (e.g. \"Use when…\", "
         "\"when the user…\") so the skill auto-activates.")
     add("description_third_person", "warn",
-        bool(desc) and not FIRST_PERSON_RE.match(desc), 1,
+        (not desc) or not FIRST_PERSON_RE.match(desc), 1,
         "`description` reads better in third person describing the situation, "
         "not \"I\"/\"You\".")
     add("name_not_generic", "warn", bool(name) and name not in GENERIC_NAMES, 1,
         "`name` is generic; pick something specific to what the skill does.")
-    add("body_has_heading", "warn", bool(HEADING_RE.search(body)), 2,
+    body_no_code = strip_code_fences(body)
+    add("body_has_heading", "warn", bool(HEADING_RE.search(body_no_code)), 2,
         "Body should use Markdown headings to structure the instructions.")
     add("no_placeholders", "warn",
         not (PLACEHOLDER_RE.search(text) or ANGLE_PLACEHOLDER_RE.search(text)), 2,
@@ -210,7 +234,7 @@ def lint_text(text: str, path: str = "<memory>", expected_name: Optional[str] = 
     add("body_progressive_disclosure", "info", body_lines <= BODY_LONG_LINES, 1,
         f"SKILL.md body is long ({body_lines} lines); consider moving detail "
         "into references/ for progressive disclosure.")
-    add("has_workflow_section", "info", bool(WORKFLOW_RE.search(body)), 1,
+    add("has_workflow_section", "info", bool(WORKFLOW_RE.search(body_no_code)), 1,
         "Consider a Workflow/Usage/Steps section so the model has an explicit "
         "procedure to follow.")
 

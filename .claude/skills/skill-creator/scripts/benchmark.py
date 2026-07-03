@@ -33,7 +33,11 @@ def discover(root: str) -> list:
     hits = glob.glob(os.path.join(root, "*", "SKILL.md"))
     # A skill can also nest one level deeper (namespaced); include those too.
     hits += glob.glob(os.path.join(root, "*", "*", "SKILL.md"))
-    return sorted(set(os.path.normpath(p) for p in hits))
+    # Explicitly drop test fixtures (intentionally-broken examples) rather than
+    # relying on them happening to sit deeper than the globbed levels.
+    keep = [p for p in hits
+            if "tests/fixtures" not in os.path.normpath(p).replace("\\", "/")]
+    return sorted(set(os.path.normpath(p) for p in keep))
 
 
 def main(argv=None) -> int:

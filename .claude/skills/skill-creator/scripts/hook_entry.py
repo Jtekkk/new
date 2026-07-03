@@ -25,9 +25,35 @@ from skill_lint import lint_file  # noqa: E402
 
 def read_payload() -> dict:
     try:
-        return json.load(sys.stdin) or {}
+        data = json.load(sys.stdin)
+        return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def target_path(data: dict):
+    """Return the path to validate, or None if this write should be ignored.
+
+    Ignored when: the payload is malformed, the file is not literally named
+    ``SKILL.md`` (so ``docs/WRITING-A-SKILL.md`` and friends are untouched), or
+    the file lives under a ``tests/fixtures`` tree (intentionally-broken
+    examples). Everything here is defensive so the hook never trips on an
+    unexpected payload shape.
+    """
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+    fp = tool_input.get("file_path") or tool_input.get("filePath")
+    if not isinstance(fp, str) or not fp:
+        return None
+    norm = fp.replace("\\", "/")
+    if os.path.basename(norm) != "SKILL.md":
+        return None
+    if "/tests/fixtures/" in norm:
+        return None
+    if not os.path.isfile(fp):
+        return None
+    return fp
 
 
 def failing_lines(result) -> list:
@@ -39,16 +65,8 @@ def failing_lines(result) -> list:
 
 
 def main() -> int:
-    data = read_payload()
-    tool_input = data.get("tool_input") or {}
-    fp = tool_input.get("file_path") or tool_input.get("filePath") or ""
-
-    norm = fp.replace("\\", "/")
-    if not norm.endswith("SKILL.md"):
-        return 0
-    if "/tests/fixtures/" in norm:      # intentionally-broken examples
-        return 0
-    if not os.path.isfile(fp):
+    fp = target_path(read_payload())
+    if fp is None:
         return 0
 
     result = lint_file(fp)
