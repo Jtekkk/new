@@ -67,20 +67,40 @@ const curveAt = i =>
   Math.sin(i * 0.016) * 2.1 * Math.sin(i * 0.0053 + 2) +
   Math.sin(i * 0.041 + 1.2) * 0.9;
 
+/* zone themes — the world recolors every 3 waves */
+const THEMES = [
+  { name: 'SUNSET STRIP',
+    skyTop: '#070116', skyMid: '#1b0640', skyLow: '#4a0e63', skyHor: '#7a1c6c',
+    gridH: '46,230,255', gridV: '255,60,220', edgeL: '46,230,255', edgeR: '255,45,149',
+    sun: ['#ffe95c', '#ff9e3d', '#ff2d95', '#c800ff'], glow: '255,80,180',
+    haze: '255,45,149', fog: '90,20,90', g0: '#12042a', g1: '#0b0220', g2: '#050112' },
+  { name: 'DATASTREAM',
+    skyTop: '#010a08', skyMid: '#032c1d', skyLow: '#0a5230', skyHor: '#0f7a44',
+    gridH: '0,255,157', gridV: '80,255,60', edgeL: '0,255,157', edgeR: '255,230,0',
+    sun: ['#eaffb0', '#7dff5c', '#00ff9d', '#00c8ff'], glow: '0,255,157',
+    haze: '0,255,157', fog: '10,70,45', g0: '#03170e', g1: '#020f09', g2: '#010805' },
+  { name: 'CRYO SECTOR',
+    skyTop: '#02020f', skyMid: '#0a1440', skyLow: '#153a75', skyHor: '#2a6bb0',
+    gridH: '140,210,255', gridV: '90,150,255', edgeL: '120,220,255', edgeR: '255,255,255',
+    sun: ['#ffffff', '#bfe8ff', '#5cb8ff', '#2a50ff'], glow: '120,200,255',
+    haze: '120,200,255', fog: '25,50,110', g0: '#060a1e', g1: '#040714', g2: '#02030a' }
+];
+let THEME = THEMES[0];
+
 /* =====================================================================
    PRERENDERED ART (sun, skyline, billboards)
    ===================================================================== */
 let sunCv, glowCv, cityFar, cityNear, signCvs = [];
 
-function prerender() {
-  /* striped synthwave sun */
+function buildSun() {
+  /* striped synthwave sun, colored by the current zone theme */
   const R = Math.max(64, H * 0.24) | 0;
   sunCv = document.createElement('canvas');
   sunCv.width = sunCv.height = R * 2;
   const sc = sunCv.getContext('2d');
   const g = sc.createLinearGradient(0, 0, 0, R * 2);
-  g.addColorStop(0, '#ffe95c'); g.addColorStop(.45, '#ff9e3d');
-  g.addColorStop(.75, '#ff2d95'); g.addColorStop(1, '#c800ff');
+  g.addColorStop(0, THEME.sun[0]); g.addColorStop(.45, THEME.sun[1]);
+  g.addColorStop(.75, THEME.sun[2]); g.addColorStop(1, THEME.sun[3]);
   sc.fillStyle = g;
   sc.beginPath(); sc.arc(R, R, R, 0, TAU); sc.fill();
   sc.globalCompositeOperation = 'destination-out';
@@ -92,9 +112,12 @@ function prerender() {
   glowCv.width = glowCv.height = R * 4;
   const gc = glowCv.getContext('2d');
   const gg = gc.createRadialGradient(R * 2, R * 2, R * 0.3, R * 2, R * 2, R * 2);
-  gg.addColorStop(0, 'rgba(255,80,180,.55)'); gg.addColorStop(1, 'rgba(255,80,180,0)');
+  gg.addColorStop(0, `rgba(${THEME.glow},.55)`); gg.addColorStop(1, `rgba(${THEME.glow},0)`);
   gc.fillStyle = gg; gc.fillRect(0, 0, R * 4, R * 4);
+}
 
+function prerender() {
+  buildSun();
   cityFar  = makeSkyline(2048, 260, .55, ['#12062b', '#160a33'], .35);
   cityNear = makeSkyline(2048, 300, 1.0, ['#0a0420', '#0e0626'], .8);
   makeSigns();
@@ -233,7 +256,7 @@ function musicTick() {
       o.connect(fl); fl.connect(g); g.connect(mGain);
       o.start(t); o.stop(t + stepDur);
     }
-    if (s % 4 === 0) blip('sine', 150, 40, .12, .4, when);              // kick
+    if (s % 4 === 0) { blip('sine', 150, 40, .12, .4, when); beatQ.push(AC.currentTime + when); }  // kick
     if (s % 4 === 2) noise(.05, .12, 6000, 'highpass', when);           // hat
     if (G.wave >= 2 && s % 2 === 0)                                     // arp lead
       blip('square', ARP[(musStep >> 1) % 8] * (G.wave >= 4 ? 2 : 1), ARP[(musStep >> 1) % 8], stepDur * .8, .05, when);
@@ -291,12 +314,14 @@ const G = {
   wave: 1, waveT: 0,
   hurtT: 0, deadT: 0, freeze: 0, flashA: 0,
   banner: null, bannerT: 0,
-  shake: 0, boltT: 0, bolt: null,
-  tCar: 1, tMine: 3, tBiker: 5, tDrone: 8, tHunter: 20, tPick: 9
+  shake: 0, boltT: 0, bolt: null, beatT: 0, zone: 0,
+  od: 0, odOn: false, odT: 0, msl: 0, mslCd: 0,
+  tCar: 1, tMine: 3, tBiker: 5, tDrone: 8, tHunter: 20, tPick: 9, tRazor: 6, tGate: 9
 };
 try { G.best = +localStorage.getItem('nov_best') || 0; } catch (e) {}
 
-let enemies = [], bullets = [], ebullets = [], pickups = [], parts = [], pops = [];
+let enemies = [], bullets = [], ebullets = [], pickups = [], parts = [], pops = [], missiles = [];
+let beatQ = [];
 let RVIEW = null;   // cached road rows from last render, for projections during update
 let stars = [];
 
@@ -314,9 +339,11 @@ function startRun() {
     wlvl: 1, fireCd: 0, score: 0, dist: 0,
     combo: 0, comboT: 0, maxCombo: 0, kills: 0,
     wave: 1, waveT: 0, hurtT: 0, deadT: 0, freeze: 0,
-    tCar: .8, tMine: 4, tBiker: 3, tDrone: 9, tHunter: 24, tPick: 8
+    od: 0, odOn: false, odT: 0, msl: 0, mslCd: 0,
+    tCar: .8, tMine: 4, tBiker: 3, tDrone: 9, tHunter: 24, tPick: 8, tRazor: 7, tGate: 10
   });
-  enemies = []; bullets = []; ebullets = []; pickups = []; pops = [];
+  enemies = []; bullets = []; ebullets = []; pickups = []; pops = []; missiles = [];
+  if (G.zone !== 0) { G.zone = 0; THEME = THEMES[0]; buildSun(); }
   spawnCar(6000); spawnCar(11000); spawnCar(16000);
   showBanner('WAVE 01', 'BLAST EVERYTHING');
 }
@@ -375,11 +402,29 @@ function spawnHunter() {
     hpMax: 26 + G.wave * 3 });
   showBanner('⚠ HUNTER ⚠', 'HEAVY GUNSHIP ON YOUR SIX');
 }
+function spawnRazor(off = 0) {
+  enemies.push({ type: 'razor', x: clamp(G.px + off, -1, 1), z: 16500, hp: 1, w: .1,
+    t: rnd(TAU), flashT: 0 });
+}
+function spawnGate() {
+  enemies.push({ type: 'gate', x: 0, gapX: rnd(-.55, .55), gapW: .44, z: 20500, hp: 3, w: 1.2,
+    t: 0, flashT: 0 });
+}
+function spawnBoss() {
+  const hp = 30 + G.wave * 2;
+  enemies.push({ type: 'boss', x: 0, z: 21500, tz: 4300, w: .5, hp, hpMax: hp,
+    turrets: [ { dx: -.3, hp: 10, alive: true, cd: rnd(1, 2) },
+               { dx: 0,   hp: 10, alive: true, cd: rnd(1.5, 2.5) },
+               { dx: .3,  hp: 10, alive: true, cd: rnd(2, 3) } ],
+    fireCd: 2, t: 0, flashT: 0 });
+  showBanner('⚠ WARLORD ⚠', 'DESTROY THE TURRETS');
+}
 function spawnPickup(kind, x, z) {
   pickups.push({ kind, x, z, spd: 1000, t: rnd(TAU) });
 }
-const PICK_KINDS = ['W', 'N', 'HP', 'SH'];
+const PICK_KINDS = ['W', 'N', 'HP', 'SH', 'M'];
 function dropFrom(e) {
+  if (e.type === 'boss') return;                        // boss drops are scripted
   if (e.type === 'hunter') { spawnPickup('W', e.x, e.z); return; }
   if (Math.random() < 0.32)
     spawnPickup(pick(PICK_KINDS), clamp(e.x, -.9, .9), e.z);
@@ -415,10 +460,11 @@ function explode(sx, sy, scale, cols, big) {
    DAMAGE / SCORING
    ===================================================================== */
 function addScore(base, sx, sy) {
-  const mult = Math.max(1, G.combo);
+  const mult = Math.max(1, G.combo) * (G.odOn ? 2 : 1);
   const pts = base * mult;
   G.score += pts;
-  popup('+' + pts + (mult > 1 ? '  x' + mult : ''), sx, sy, mult > 3 ? '#ffe95c' : '#2ee6ff', mult > 3 ? 24 : 18);
+  popup('+' + pts + (mult > 1 ? '  x' + mult : ''), sx, sy,
+    G.odOn ? '#ffd700' : mult > 3 ? '#ffe95c' : '#2ee6ff', mult > 3 || G.odOn ? 24 : 18);
 }
 function onKill(e, sx, sy) {
   G.combo++; G.comboT = 2.6; G.maxCombo = Math.max(G.maxCombo, G.combo); G.kills++;
@@ -426,12 +472,68 @@ function onKill(e, sx, sy) {
   if (G.combo === 5)  showBanner('RAMPAGE', 'x5 COMBO');
   if (G.combo === 10) showBanner('CARNAGE', 'x10 COMBO');
   if (G.combo === 15) showBanner('UNSTOPPABLE', 'MAXIMUM CHAOS');
-  const table = { car: 300, biker: 200, drone: 250, mine: 100, hunter: 1500 };
+  const table = { car: 300, biker: 200, drone: 250, mine: 100, hunter: 1500,
+    razor: 150, gate: 250, boss: 5000 };
   addScore(table[e.type] || 100, sx, sy);
+  G.od = clamp(G.od + 9, 0, 100);
   dropFrom(e);
 }
+
+/* ---- unified damage / death (routes boss hits, chains mines) ---- */
+function damageEnemy(e, dmg, hx) {
+  if (e.dead) return;
+  if (e.type === 'boss') { bossDamage(e, dmg, hx); return; }
+  e.hp -= dmg; e.flashT = .07;
+  if (e.hp <= 0) killEnemy(e);
+}
+function killEnemy(e) {
+  if (e.dead) return;
+  e.dead = true;
+  const p = proj(e.type === 'gate' ? e.gapX : e.x, e.type === 'drone' ? e.y : 60, e.z);
+  const big = e.type === 'car' || e.type === 'hunter' || e.type === 'boss';
+  const cols = e.type === 'mine' || e.type === 'gate' || e.type === 'razor'
+    ? ['#ff4444', '#ff9e3d', '#fff'] : ['#ff2d95', '#2ee6ff', '#ffe95c', '#fff'];
+  explode(p.x, p.y, clamp(p.s * 1300, .5, 2), cols, big);
+  onKill(e, p.x, p.y - 30 * US);
+  if (e.type === 'mine')
+    for (const n of enemies)
+      if (!n.dead && n !== e && Math.abs(n.z - e.z) < 1100 && Math.abs(n.x - e.x) < .5)
+        damageEnemy(n, 3, n.x);
+  if (e.type === 'boss') {
+    for (let k = -1; k <= 1; k++)
+      explode(p.x + k * 70 * US, p.y + rnd(-25, 25) * US, 1.5, ['#ff9e3d', '#ff2d95', '#ffe95c', '#fff'], true);
+    spawnPickup('W', clamp(e.x - .25, -.9, .9), Math.max(e.z - 300, 1500));
+    spawnPickup('N', e.x, e.z);
+    spawnPickup('HP', clamp(e.x + .25, -.9, .9), e.z + 300);
+    showBanner('WARLORD DOWN', '+5000');
+    G.freeze = Math.max(G.freeze, .12);
+  }
+}
+function bossDamage(e, dmg, hx) {
+  const alive = e.turrets.filter(t => t.alive);
+  if (alive.length) {
+    let best = null, bd = 1;
+    for (const t of alive) { const d = Math.abs(hx - (e.x + t.dx)); if (d < bd) { bd = d; best = t; } }
+    if (best && bd < .17) {
+      best.hp -= dmg; e.flashT = .06;
+      if (best.hp <= 0) {
+        best.alive = false;
+        const q = proj(e.x + best.dx, 700, e.z);
+        explode(q.x, q.y, 1.1, ['#ff9e3d', '#ffe95c', '#fff'], false);
+        G.combo++; G.comboT = 2.6; G.maxCombo = Math.max(G.maxCombo, G.combo);
+        addScore(500, q.x, q.y - 20 * US);
+        popup('TURRET DOWN', q.x, q.y - 46 * US, '#ff9e3d', 18);
+        G.od = clamp(G.od + 9, 0, 100);
+        if (!e.turrets.some(t => t.alive)) showBanner('CORE EXPOSED', 'HIT THE REACTOR');
+      }
+    } else e.flashT = .03;      // armor clank, no damage
+  } else {
+    e.hp -= dmg; e.flashT = .06;
+    if (e.hp <= 0) killEnemy(e);
+  }
+}
 function hurt(dmg, why) {
-  if (G.state !== 'play') return;
+  if (G.state !== 'play' || G.odOn) return;
   if (G.shield > 0) {
     G.shield = Math.max(0, G.shield - dmg);
     sfx.hit(); G.hurtT = .18; G.shake += 8 * US;
@@ -511,12 +613,13 @@ function update(rawDt) {
     const firing = keys.Space || keys.KeyX || keys.KeyJ || touching;
     G.fireCd -= dt;
     if (firing && G.fireCd <= 0) {
-      const rate = [0, 6.5, 8, 9.5, 12][G.wlvl];
+      const lvl = G.odOn ? 4 : G.wlvl;
+      const rate = [0, 6.5, 8, 9.5, 12][lvl] + (G.odOn ? 2 : 0);
       G.fireCd = 1 / rate; G.muzzleT = .06;
       sfx.pew();
-      const spread = [[0], [-.035, .035], [-.04, .04, 0], [-.05, -.017, .017, .05]][G.wlvl - 1];
+      const spread = [[0], [-.035, .035], [-.04, .04, 0], [-.05, -.017, .017, .05]][lvl - 1];
       for (let i = 0; i < spread.length; i++) {
-        const ang = (G.wlvl >= 3 && (i === spread.length - 1 || spread.length === 4 && (i === 0 || i === 3))) ? spread[i] * 2.2 : 0;
+        const ang = (lvl >= 3 && (i === spread.length - 1 || spread.length === 4 && (i === 0 || i === 3))) ? spread[i] * 2.2 : 0;
         bullets.push({ x: G.px + spread[i], z: PZ + 60, vx: ang, dmg: 1 });
       }
     }
@@ -527,19 +630,48 @@ function update(rawDt) {
     if (G.waveT > 17) {
       G.waveT = 0; G.wave++;
       G.maxSpeed = Math.min(4300, 2900 + G.wave * 110);
-      showBanner('WAVE ' + String(G.wave).padStart(2, '0'), WAVE_SUBS[Math.min(G.wave - 2, WAVE_SUBS.length - 1)]);
+      const zone = ((G.wave - 1) / 3 | 0) % 3;
+      if (zone !== G.zone) {
+        G.zone = zone; THEME = THEMES[zone]; buildSun();
+        G.flashA = Math.max(G.flashA, .35);
+        showBanner('ENTERING ' + THEME.name, 'WAVE ' + String(G.wave).padStart(2, '0'));
+      } else {
+        showBanner('WAVE ' + String(G.wave).padStart(2, '0'), WAVE_SUBS[Math.min(G.wave - 2, WAVE_SUBS.length - 1)]);
+      }
+      if (G.wave % 5 === 0) spawnBoss();
       sfx.ui();
     }
 
+    /* overdrive */
+    if (!G.odOn && G.od >= 100) {
+      G.odOn = true; G.odT = 6.5;
+      showBanner('⚡ OVERDRIVE ⚡', 'INVINCIBLE // DOUBLE SCORE');
+      G.flashA = .45; ebullets = [];
+      ring(W / 2, H * .88, '#ffd700', 320 * US);
+      noise(.6, .35, 1200, 'bandpass'); blip('sawtooth', 200, 1600, .5, .2);
+    }
+    if (G.odOn) {
+      G.odT -= dt; G.od = clamp(100 * G.odT / 6.5, 0, 100);
+      if (G.odT <= 0) { G.odOn = false; G.od = 0; }
+    }
+
     /* spawning */
-    G.tCar   -= dt; G.tMine -= dt; G.tBiker -= dt; G.tDrone -= dt; G.tHunter -= dt; G.tPick -= dt;
+    G.tCar -= dt; G.tMine -= dt; G.tBiker -= dt; G.tDrone -= dt; G.tHunter -= dt;
+    G.tPick -= dt; G.tRazor -= dt; G.tGate -= dt;
     if (G.tCar   <= 0) { spawnCar();  G.tCar   = clamp(2.6 - G.wave * .16, 1.0, 9) * rnd(.7, 1.3); }
     if (G.tMine  <= 0) { spawnMine(); G.tMine  = clamp(4.5 - G.wave * .3, 1.5, 9) * rnd(.7, 1.3); }
     if (G.wave >= 2 && G.tBiker <= 0 && enemies.filter(e => e.type === 'biker').length < 4)
       { spawnBiker(); G.tBiker = clamp(6.5 - G.wave * .35, 2.2, 9) * rnd(.7, 1.3); }
+    if (G.wave >= 2 && G.tRazor <= 0) {
+      spawnRazor();
+      if (G.wave >= 5 && Math.random() < .5) spawnRazor(rnd(-.4, .4));
+      G.tRazor = clamp(6.5 - G.wave * .3, 2.8, 9) * rnd(.75, 1.3);
+    }
     if (G.wave >= 3 && G.tDrone <= 0 && enemies.filter(e => e.type === 'drone').length < 3)
       { spawnDrone(); G.tDrone = clamp(7.5 - G.wave * .4, 2.6, 9) * rnd(.7, 1.3); }
-    if (G.wave >= 4 && G.tHunter <= 0 && !enemies.some(e => e.type === 'hunter'))
+    if (G.wave >= 3 && G.tGate <= 0 && !enemies.some(e => e.type === 'gate' && e.z > 12000))
+      { spawnGate(); G.tGate = clamp(10 - G.wave * .3, 5, 12) * rnd(.8, 1.25); }
+    if (G.wave >= 4 && G.tHunter <= 0 && !enemies.some(e => e.type === 'hunter' || e.type === 'boss'))
       { spawnHunter(); G.tHunter = 26; }
     if (G.tPick <= 0) { spawnPickup(pick(PICK_KINDS), rnd(-.8, .8), 20000); G.tPick = rnd(9, 15); }
 
@@ -559,7 +691,9 @@ function update(rawDt) {
 
   updateEnemies(dt);
   updateBullets(dt);
+  updateMissiles(dt);
   updatePickups(dt);
+  enemies = enemies.filter(e => !e.dead);
   trailFx(dt);
   updateFx(dt);
 
@@ -579,6 +713,7 @@ function sfxNitroTick() { if (AC && !muted && Math.random() < .2) noise(.15, .1,
 function updateEnemies(dt) {
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
+    if (e.dead) continue;
     e.t += dt; e.flashT -= dt;
     const prevZ = e.z;
 
@@ -619,82 +754,115 @@ function updateEnemies(dt) {
           else if (e.burst <= 0) { e.fireCd -= dt; if (e.fireCd <= 0) { e.burst = 3; e.fireCd = rnd(2.2, 3.2); } }
         }
         break;
+      case 'razor':
+        e.z -= 2800 * dt;
+        if (e.z > 3500) e.x += clamp(G.px - e.x, -1.2, 1.2) * 1.6 * dt;
+        break;
+      case 'gate':
+        e.z -= G.speed * dt;
+        break;
+      case 'boss': {
+        e.z += (e.tz - e.z) * .5 * dt;
+        e.x = Math.sin(e.t * .5) * .28 + clamp(G.px, -1, 1) * .1;
+        if (G.state === 'play') {
+          if (e.turrets.some(t => t.alive)) {
+            for (const t of e.turrets) if (t.alive) {
+              t.cd -= dt;
+              if (t.cd <= 0 && e.z < 9500) { t.cd = rnd(1.7, 2.8); fireAtFrom(e.x + t.dx, e.z, 300); }
+            }
+          } else {
+            e.fireCd -= dt;
+            if (e.fireCd <= 0) { e.fireCd = rnd(1.8, 2.6); bossVolley(e); }
+          }
+        }
+        break;
+      }
     }
 
-    /* passed the player? near miss check */
-    if (prevZ > PZ && e.z <= PZ && G.state === 'play' && e.type !== 'drone') {
+    /* passed the player? near miss / crossing check */
+    if (prevZ > PZ && e.z <= PZ && G.state === 'play' && e.type !== 'drone' && e.type !== 'boss') {
+      if (e.type === 'gate') {
+        if (Math.abs(G.px - e.gapX) > e.gapW / 2 - 0.02) {
+          if (G.odOn) popup('BLASTED THROUGH', W / 2, H * .55, '#ffd700', 20);
+          else {
+            hurt(20); G.speed *= 0.55;
+            const p = proj(G.px, 60, PZ);
+            explode(p.x, p.y, .9, ['#ff3c5a', '#ff9e3d'], false);
+          }
+        } else {
+          G.score += 100; G.nitro = clamp(G.nitro + 10, 0, 100); G.od = clamp(G.od + 8, 0, 100);
+          const p = proj(e.gapX, 200, PZ + 150);
+          popup('THREADED +100', p.x, p.y, '#3dff88', 17);
+          sfx.near();
+        }
+        e.dead = true;
+        continue;
+      }
       const dx = Math.abs(e.x - G.px);
       const hitW = e.w + 0.105;
       if (dx < hitW) {
         /* collision */
         const p = proj(e.x, 0, PZ);
-        if (G.nitroOn && e.type !== 'hunter' && e.type !== 'car') {
-          explode(p.x, p.y, 1.2, ['#ff2d95', '#ffe95c', '#fff'], false);
-          popup('NITRO KILL', p.x, p.y - 40 * US, '#ff2d95', 22);
-          onKill(e, p.x, p.y - 60 * US);
-          enemies.splice(i, 1);
+        if ((G.nitroOn || G.odOn) && e.type !== 'hunter' && (G.odOn || (e.type !== 'car'))) {
+          popup(G.odOn ? 'OVERKILL' : 'NITRO KILL', p.x, p.y - 40 * US, G.odOn ? '#ffd700' : '#ff2d95', 22);
+          killEnemy(e);
           continue;
         }
-        const dmg = { car: 30, mine: 25, biker: 18, hunter: 40 }[e.type] || 20;
+        const dmg = { car: 30, mine: 25, biker: 18, hunter: 40, razor: 22 }[e.type] || 20;
         hurt(G.nitroOn ? dmg * .5 : dmg);
-        G.speed *= 0.45;
+        if (!G.odOn) G.speed *= 0.45;
         explode(p.x, p.y, 1, ['#ff9e3d', '#ff2d95', '#aaa'], e.type === 'car');
-        if (e.type !== 'hunter') { enemies.splice(i, 1); continue; }
+        if (e.type !== 'hunter') { e.dead = true; continue; }
       } else if (dx < 0.45) {
-        G.score += 50; G.nitro = clamp(G.nitro + 8, 0, 100);
+        G.score += 50; G.nitro = clamp(G.nitro + 8, 0, 100); G.od = clamp(G.od + 7, 0, 100);
         const p = proj(e.x, 0, PZ + 100);
         popup('NEAR MISS +50', p.x, p.y - 30 * US, '#3dff88', 15);
         sfx.near();
       }
     }
 
-    if (e.z < 320 || e.z > 26000) enemies.splice(i, 1);
+    if ((e.z < 320 || e.z > 26000) && e.type !== 'boss') e.dead = true;
   }
 }
 
-function fireAt(e, y0) {
-  const tArr = (e.z - PZ) / 3400;
+function fireAtFrom(x, z, y0) {
+  const tArr = (z - PZ) / 3400;
   const tx = G.px + G.pvx * tArr * 0.55;
   ebullets.push({
-    x: e.x, z: e.z, y0: y0 || 90, z0: e.z,
-    vx: clamp((tx - e.x) / Math.max(tArr, .3) + rnd(-.07, .07), -.7, .7)
+    x, z, y0: y0 || 90, z0: z,
+    vx: clamp((tx - x) / Math.max(tArr, .3) + rnd(-.07, .07), -.7, .7)
   });
+  sfx.epew();
+}
+function fireAt(e, y0) { fireAtFrom(e.x, e.z, y0); }
+function bossVolley(e) {
+  const tArr = (e.z - PZ) / 3400;
+  const aim = clamp((G.px - e.x) / Math.max(tArr, .3), -.5, .5);
+  for (let k = -2; k <= 2; k++)
+    ebullets.push({ x: e.x + k * .05, z: e.z, y0: 260, z0: e.z, vx: aim + k * .11 });
   sfx.epew();
 }
 
 /* ---------------- bullets ---------------- */
+function bulletHits(e, bx, bz, win = 330) {
+  if (e.dead || Math.abs(bz - e.z) >= win) return false;
+  if (e.type === 'gate') return Math.abs(bx) < 1.2 && Math.abs(bx - e.gapX) > e.gapW / 2;
+  return Math.abs(bx - e.x) < e.w + .05;
+}
+
 function updateBullets(dt) {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.z += 9500 * dt; b.x += b.vx * dt;
     let dead = b.z > VIEW - 500;
-    if (!dead) for (let j = enemies.length - 1; j >= 0; j--) {
-      const e = enemies[j];
-      if (Math.abs(b.z - e.z) < 330 && Math.abs(b.x - e.x) < e.w + 0.05) {
-        e.hp -= b.dmg; e.flashT = .07; dead = true;
-        const p = proj(e.x, e.type === 'drone' ? e.y : 60, e.z);
-        addParts(5, p.x, p.y, clamp(p.s * 250000, 90, 280) * US, ['#2ee6ff', '#fff'],
-          .3, 300, clamp(p.s * 4200, 2, 5.5) * US);
-        if (e.hp <= 0) {
-          const cols = e.type === 'mine' ? ['#ff4444', '#ff9e3d', '#fff'] : ['#ff2d95', '#2ee6ff', '#ffe95c', '#fff'];
-          explode(p.x, p.y, clamp(p.s * 1300, .5, 2), cols, e.type === 'car' || e.type === 'hunter');
-          onKill(e, p.x, p.y - 30 * US);
-          if (e.type === 'mine')          /* chain blast */
-            for (let k = enemies.length - 1; k >= 0; k--) {
-              const n = enemies[k];
-              if (n !== e && Math.abs(n.z - e.z) < 1100 && Math.abs(n.x - e.x) < 0.5) {
-                n.hp -= 3; n.flashT = .1;
-                if (n.hp <= 0) {
-                  const q = proj(n.x, 60, n.z);
-                  explode(q.x, q.y, clamp(q.s * 1300, .5, 1.6), ['#ff9e3d', '#ffe95c'], false);
-                  onKill(n, q.x, q.y); enemies.splice(k, 1); if (k < j) j--;
-                }
-              }
-            }
-          enemies.splice(j, 1);
-        }
-        break;
-      }
+    if (!dead) for (const e of enemies) {
+      if (!bulletHits(e, b.x, b.z)) continue;
+      dead = true;
+      const p = proj(e.type === 'gate' ? b.x : e.x, e.type === 'drone' ? e.y : 60, e.z);
+      addParts(5, p.x, p.y, clamp(p.s * 250000, 90, 280) * US, ['#2ee6ff', '#fff'],
+        .3, 300, clamp(p.s * 4200, 2, 5.5) * US);
+      damageEnemy(e, b.dmg, b.x);
+      break;
     }
     if (dead) bullets.splice(i, 1);
   }
@@ -714,6 +882,46 @@ function updateBullets(dt) {
   }
 }
 
+/* ---------------- homing missiles ---------------- */
+function updateMissiles(dt) {
+  if (G.state === 'play' && G.msl > 0) {
+    G.mslCd -= dt;
+    if (G.mslCd <= 0) {
+      let best = null, bz = 1e9;
+      for (const e of enemies)
+        if (!e.dead && e.type !== 'gate' && e.z > 1400 && e.z < 17000 && e.z < bz) { bz = e.z; best = e; }
+      if (best) {
+        G.mslCd = .55; G.msl--;
+        missiles.push({ x: G.px, z: PZ + 60, tgt: best, t: 0 });
+        blip('sawtooth', 600, 150, .18, .12);
+      }
+    }
+  }
+  for (let i = missiles.length - 1; i >= 0; i--) {
+    const m = missiles[i];
+    m.t += dt;
+    m.z += 6200 * dt;
+    if (m.tgt && !m.tgt.dead) m.x += clamp(m.tgt.x - m.x, -1, 1) * (2.8 + m.t * 2) * dt;
+    const p = proj(m.x, 110, m.z);
+    if (parts.length < 500)
+      parts.push({ x: p.x, y: p.y, vx: rnd(-15, 15) * US, vy: rnd(10, 40) * US,
+        life: .35, maxLife: .35, col: pick(['#ff9e3d', '#ffd27a']), g: 0,
+        r: clamp(500 * p.s * SC * .01, 1.5, 4) * US });
+    let hit = false;
+    for (const e of enemies) {
+      if (!bulletHits(e, m.x, m.z, 360)) continue;
+      hit = true;
+      explode(p.x, p.y, .9, ['#ff9e3d', '#ffe95c', '#fff'], false);
+      damageEnemy(e, 4, m.x);
+      for (const n of enemies)
+        if (!n.dead && n !== e && Math.abs(n.z - m.z) < 800 && Math.abs(n.x - m.x) < .3)
+          damageEnemy(n, 2, n.x);
+      break;
+    }
+    if (hit || m.z > 17500) missiles.splice(i, 1);
+  }
+}
+
 /* ---------------- pickups ---------------- */
 function updatePickups(dt) {
   for (let i = pickups.length - 1; i >= 0; i--) {
@@ -723,12 +931,14 @@ function updatePickups(dt) {
     if (p.z <= PZ + 150 && p.z > PZ - 350 && Math.abs(p.x - G.px) < 0.24 && G.state === 'play') {
       const s = proj(p.x, 90, PZ);
       sfx.pick();
+      G.od = clamp(G.od + 4, 0, 100);
       switch (p.kind) {
         case 'W':  G.wlvl = Math.min(4, G.wlvl + 1);
                    popup(G.wlvl === 4 ? 'MAX BLASTERS' : 'BLASTER UP', s.x, s.y - 30 * US, '#ffe95c', 22); break;
         case 'N':  G.nitro = 100; popup('NITRO FULL', s.x, s.y - 30 * US, '#ff2d95', 20); break;
         case 'HP': G.hp = clamp(G.hp + 25, 0, 100); popup('+25 HULL', s.x, s.y - 30 * US, '#3dff88', 20); break;
         case 'SH': G.shield = clamp(G.shield + 40, 0, 60); popup('SHIELD', s.x, s.y - 30 * US, '#41c8ff', 20); break;
+        case 'M':  G.msl = Math.min(16, G.msl + 8); popup('+8 MISSILES', s.x, s.y - 30 * US, '#ff9e3d', 20); break;
       }
       ring(s.x, s.y, '#fff', 70 * US);
       pickups.splice(i, 1);
@@ -751,7 +961,8 @@ function trailFx(dt) {
       vx: rnd(-24, 24) * US - G.steerVis * 70 * US,
       vy: rnd(80, 220) * US * (G.nitroOn ? 2 : 1),
       life: rnd(.2, G.nitroOn ? .5 : .35), maxLife: .5,
-      col: G.nitroOn ? pick(['#ff2d95', '#ffe95c', '#fff']) : pick(['#2ee6ff', '#41c8ff', '#7df']),
+      col: G.odOn ? pick(['#ffd700', '#ffe95c', '#fff'])
+        : G.nitroOn ? pick(['#ff2d95', '#ffe95c', '#fff']) : pick(['#2ee6ff', '#41c8ff', '#7df']),
       g: 0, r: rnd(2, G.nitroOn ? 6 : 4) * US
     });
   }
@@ -773,6 +984,7 @@ function updateFx(dt) {
   G.shake *= Math.pow(0.001, dt);
   G.flashA *= Math.pow(0.005, dt);
   G.bannerT -= dt;
+  G.beatT = Math.max(0, G.beatT - dt * 5);
 }
 
 /* =====================================================================
@@ -793,6 +1005,7 @@ function render() {
 
   ctx.restore();
 
+  if (G.odOn) { ctx.fillStyle = 'rgba(255,200,40,.07)'; ctx.fillRect(0, 0, W, H); }
   renderHud();
   if (G.flashA > 0.01) {
     ctx.fillStyle = `rgba(255,190,235,${G.flashA.toFixed(3)})`;
@@ -810,7 +1023,8 @@ function render() {
 /* ---------------- sky ---------------- */
 function renderSky() {
   const g = ctx.createLinearGradient(0, 0, 0, HOR * 1.25);
-  g.addColorStop(0, '#070116'); g.addColorStop(.55, '#1b0640'); g.addColorStop(.9, '#4a0e63'); g.addColorStop(1, '#7a1c6c');
+  g.addColorStop(0, THEME.skyTop); g.addColorStop(.55, THEME.skyMid);
+  g.addColorStop(.9, THEME.skyLow); g.addColorStop(1, THEME.skyHor);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, HOR + 4);
 
@@ -834,8 +1048,8 @@ function renderSky() {
 
   /* sun + glow */
   const sunX = W * .5 + Math.sin(G.t * .05) * 20, sunY = HOR - H * .01;
-  const R = sunCv.width / 2;
-  ctx.drawImage(glowCv, sunX - R * 2, sunY - R * 2 - R * .1, R * 4, R * 4);
+  const R = sunCv.width / 2, bs = 1 + G.beatT * .05;   // beat-synced pulse
+  ctx.drawImage(glowCv, sunX - R * 2 * bs, sunY - (R * 2 + R * .1) * bs + R * .1 * (1 - bs), R * 4 * bs, R * 4 * bs);
   ctx.drawImage(sunCv, sunX - R, sunY - R * 1.55, R * 2, R * 2);
 
   /* skyline parallax */
@@ -845,7 +1059,7 @@ function renderSky() {
 
   /* horizon haze */
   const hg = ctx.createLinearGradient(0, HOR - 40, 0, HOR + 30);
-  hg.addColorStop(0, 'rgba(122,28,108,0)'); hg.addColorStop(1, 'rgba(255,45,149,.28)');
+  hg.addColorStop(0, `rgba(${THEME.haze},0)`); hg.addColorStop(1, `rgba(${THEME.haze},.28)`);
   ctx.fillStyle = hg; ctx.fillRect(0, HOR - 40, W, 70);
 }
 function drawWrapped(img, off, y, scale, alpha) {
@@ -860,7 +1074,7 @@ function drawWrapped(img, off, y, scale, alpha) {
 function renderRoad() {
   /* ground fill */
   const gg = ctx.createLinearGradient(0, HOR, 0, H);
-  gg.addColorStop(0, '#12042a'); gg.addColorStop(.4, '#0b0220'); gg.addColorStop(1, '#050112');
+  gg.addColorStop(0, THEME.g0); gg.addColorStop(.4, THEME.g1); gg.addColorStop(1, THEME.g2);
   ctx.fillStyle = gg;
   ctx.fillRect(0, HOR, W, H - HOR);
 
@@ -889,7 +1103,7 @@ function renderRoad() {
   ctx.lineWidth = 1;
   for (let k = -9; k <= 9; k++) {
     if (k === 0) continue;
-    ctx.strokeStyle = `rgba(255,60,220,${0.16 - Math.abs(k) * 0.011})`;
+    ctx.strokeStyle = `rgba(${THEME.gridV},${0.16 - Math.abs(k) * 0.011})`;
     ctx.beginPath();
     let started = false;
     for (let n = 2; n <= DRAW; n += 3) {
@@ -903,8 +1117,8 @@ function renderRoad() {
   for (let n = 1; n < DRAW; n++) {
     if ((baseSeg + n) % 2) continue;
     const r = rows[n];
-    const a = clamp((1 - n / DRAW) * .22, 0, .22);
-    ctx.strokeStyle = `rgba(46,230,255,${a})`;
+    const a = clamp((1 - n / DRAW) * .22 * (1 + G.beatT * .9), 0, .4);
+    ctx.strokeStyle = `rgba(${THEME.gridH},${a})`;
     ctx.beginPath(); ctx.moveTo(0, r.y); ctx.lineTo(W, r.y); ctx.stroke();
   }
 
@@ -918,9 +1132,9 @@ function renderRoad() {
     quad(r1.x - r1.w, r1.y, r1.x + r1.w, r2.x - r2.w, r2.y, r2.x + r2.w,
       alt ? '#1c1034' : '#170c2c');
     /* neon edges */
-    const ea = (0.75 + 0.25 * Math.sin(G.t * 6 - n * .45)) * (1 - fog);
-    quad(r1.x - r1.w, r1.y, r1.x - r1.w * .965, r2.x - r2.w, r2.y, r2.x - r2.w * .965, `rgba(46,230,255,${ea})`);
-    quad(r1.x + r1.w * .965, r1.y, r1.x + r1.w, r2.x + r2.w * .965, r2.y, r2.x + r2.w, `rgba(255,45,149,${ea})`);
+    const ea = Math.min(1, (0.75 + 0.25 * Math.sin(G.t * 6 - n * .45)) * (1 - fog) * (1 + G.beatT * .3));
+    quad(r1.x - r1.w, r1.y, r1.x - r1.w * .965, r2.x - r2.w, r2.y, r2.x - r2.w * .965, `rgba(${THEME.edgeL},${ea})`);
+    quad(r1.x + r1.w * .965, r1.y, r1.x + r1.w, r2.x + r2.w * .965, r2.y, r2.x + r2.w, `rgba(${THEME.edgeR},${ea})`);
     /* centre dashes */
     if (alt) {
       quad(r1.x - r1.w * .012, r1.y, r1.x + r1.w * .012, r2.x - r2.w * .012, r2.y, r2.x + r2.w * .012,
@@ -935,7 +1149,7 @@ function renderRoad() {
     /* fog pass */
     if (fog > 0.03) {
       quad(r1.x - r1.w, r1.y, r1.x + r1.w, r2.x - r2.w, r2.y, r2.x + r2.w,
-        `rgba(90,20,90,${fog * .5})`);
+        `rgba(${THEME.fog},${fog * .5})`);
     }
     /* billboards */
     if (idx % 17 === 0 && n > 3) {
@@ -967,7 +1181,7 @@ function renderEntities() {
   for (const p of pickups) list.push(p);
   list.sort((a, b) => b.z - a.z);
   for (const e of list) {
-    if (e.z > VIEW - 800) continue;
+    if (e.z > VIEW - 800 || e.dead) continue;
     const fadeIn = clamp((19800 - e.z) / 2200, 0, 1);
     ctx.globalAlpha = fadeIn;
     if (e.kind) drawPickup(e);
@@ -978,6 +1192,9 @@ function renderEntities() {
         case 'biker':  drawBiker(e); break;
         case 'drone':  drawDrone(e); break;
         case 'hunter': drawHunter(e); break;
+        case 'razor':  drawRazor(e); break;
+        case 'gate':   drawGate(e); break;
+        case 'boss':   drawBoss(e); break;
       }
     }
     ctx.globalAlpha = 1;
@@ -1010,7 +1227,7 @@ function drawCar(e) {
 function drawMine(e) {
   const bob = Math.sin(e.t * 4) * 30;
   const p = proj(e.x, 110 + bob, e.z);
-  const r = 150 * p.s * SC;
+  const r = clamp(150 * p.s * SC, 1.5, 80 * US);
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(e.t * 2);
@@ -1065,7 +1282,7 @@ function drawBiker(e) {
 }
 function drawDrone(e) {
   const p = proj(e.x, e.y + Math.sin(e.t * 5) * 30, e.z);
-  const r = 190 * p.s * SC;
+  const r = clamp(190 * p.s * SC, 1.5, 110 * US);
   ctx.save();
   ctx.translate(p.x, p.y);
   /* rotor ring */
@@ -1127,11 +1344,134 @@ function drawHunter(e) {
   ctx.fillStyle = '#ff2d55';        ctx.fillRect(-bw / 2, -h * 1.05, bw * (e.hp / e.hpMax), Math.max(2, h * .06));
   ctx.restore();
 }
+function drawRazor(e) {
+  const p = proj(e.x, 60 + Math.abs(Math.sin(e.t * 9)) * 25, e.z);
+  const r = clamp(170 * p.s * SC, 2, 90 * US);
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(e.t * 14);
+  ctx.fillStyle = flash(e) ? '#fff' : '#1c0b10';
+  ctx.beginPath(); ctx.arc(0, 0, r * .7, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#ff5a26'; ctx.lineWidth = Math.max(1.5, r * .14);
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = i / 8 * TAU;
+    ctx.moveTo(Math.cos(a) * r * .7, Math.sin(a) * r * .7);
+    ctx.lineTo(Math.cos(a + .35) * r * 1.05, Math.sin(a + .35) * r * 1.05);
+  }
+  ctx.stroke();
+  ctx.fillStyle = `rgba(255,60,60,${.6 + .4 * Math.sin(e.t * 22)})`;
+  ctx.shadowColor = '#ff3c3c'; ctx.shadowBlur = 12 * US;
+  ctx.beginPath(); ctx.arc(0, 0, r * .3, 0, TAU); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+  if (Math.random() < .4 && p.s * SC > .06)
+    addParts(1, p.x, p.y + r * .6, 120 * US, ['#ffb347', '#ff5a26'], .3, 600, 2.5 * US);
+}
+function drawGate(e) {
+  const post = xn => {
+    const b = proj(xn, 0, e.z), t2 = proj(xn, 380, e.z);
+    const w = clamp(90 * b.s * SC, 2, 26 * US);
+    ctx.fillStyle = flash(e) ? '#fff' : '#1a0d24';
+    ctx.fillRect(b.x - w / 2, t2.y, w, b.y - t2.y);
+    ctx.strokeStyle = '#ff3c5a'; ctx.lineWidth = Math.max(1, w * .18);
+    ctx.strokeRect(b.x - w / 2, t2.y, w, b.y - t2.y);
+    ctx.fillStyle = '#ff3c5a'; ctx.shadowColor = '#ff3c5a'; ctx.shadowBlur = 10 * US;
+    ctx.beginPath(); ctx.arc(b.x, t2.y, Math.max(1.5, w * .4), 0, TAU); ctx.fill();
+    ctx.shadowBlur = 0;
+    return { b, t: t2 };
+  };
+  const g1 = e.gapX - e.gapW / 2, g2 = e.gapX + e.gapW / 2;
+  const pL = post(-1.15), p1 = post(g1), p2 = post(g2), pR = post(1.15);
+  const flick = .55 + .45 * Math.sin(e.t * 26 + e.z * .01);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const [A, B] of [[pL, p1], [p2, pR]]) {
+    const y1 = lerp(A.t.y, A.b.y, .3), y2 = lerp(B.t.y, B.b.y, .3);
+    ctx.strokeStyle = `rgba(255,60,90,${.75 * flick})`;
+    ctx.lineWidth = clamp(60 * A.b.s * SC, 2, 9 * US);
+    ctx.beginPath(); ctx.moveTo(A.b.x, y1); ctx.lineTo(B.b.x, y2); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,255,${.9 * flick})`;
+    ctx.lineWidth = clamp(20 * A.b.s * SC, 1, 4 * US);
+    ctx.beginPath(); ctx.moveTo(A.b.x, y1); ctx.lineTo(B.b.x, y2); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawBoss(e) {
+  const p = proj(e.x, 120 + Math.sin(e.t * 1.5) * 20, e.z);
+  const w = 2100 * p.s * SC, h = 850 * p.s * SC;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  glowEllipse(0, h * .08, w * .55, h * .14, '#ff3c5a', .5);
+  /* hull */
+  ctx.fillStyle = flash(e) ? '#fff' : '#140a1c';
+  ctx.beginPath();
+  ctx.moveTo(-w / 2, 0); ctx.lineTo(-w * .46, -h * .62); ctx.lineTo(-w * .3, -h * .78);
+  ctx.lineTo(w * .3, -h * .78); ctx.lineTo(w * .46, -h * .62); ctx.lineTo(w / 2, 0);
+  ctx.lineTo(w * .36, h * .1); ctx.lineTo(-w * .36, h * .1);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#ff3c5a'; ctx.lineWidth = Math.max(1.5, w * .008); ctx.stroke();
+  /* armour slats */
+  ctx.strokeStyle = 'rgba(255,60,90,.35)';
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath(); ctx.moveTo(i * w * .16, -h * .75); ctx.lineTo(i * w * .19, 0); ctx.stroke();
+  }
+  /* engine row */
+  for (let i = -3; i <= 3; i++) {
+    ctx.fillStyle = `rgba(255,158,61,${.5 + .4 * Math.sin(G.t * 16 + i)})`;
+    ctx.shadowColor = '#ff9e3d'; ctx.shadowBlur = 10 * US;
+    ctx.beginPath(); ctx.arc(i * w * .11, h * .05, Math.max(1.5, w * .022), 0, TAU); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  /* turrets */
+  for (const t of e.turrets) {
+    const tx = t.dx * RW * p.s * SC;
+    if (t.alive) {
+      ctx.fillStyle = '#241233';
+      ctx.beginPath(); ctx.arc(tx, -h * .82, Math.max(2, w * .07), 0, Math.PI, true); ctx.fill();
+      ctx.strokeStyle = '#ff9e3d'; ctx.lineWidth = Math.max(1, w * .008);
+      ctx.beginPath(); ctx.arc(tx, -h * .82, Math.max(2, w * .07), 0, Math.PI, true); ctx.stroke();
+      const chg = .5 + .5 * Math.sin(e.t * 6 + t.dx * 20);
+      ctx.fillStyle = `rgba(255,60,90,${chg})`;
+      ctx.shadowColor = '#ff3c5a'; ctx.shadowBlur = 10 * US;
+      ctx.beginPath(); ctx.arc(tx, -h * .86, Math.max(1.5, w * .022), 0, TAU); ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.fillStyle = '#0a0510';
+      ctx.beginPath(); ctx.arc(tx, -h * .8, Math.max(2, w * .05), 0, Math.PI, true); ctx.fill();
+      if (Math.random() < .25)
+        addParts(1, p.x + tx, p.y - h * .82, 60 * US, ['#555', '#ff9e3d'], .5, -80, 3 * US);
+    }
+  }
+  /* exposed core */
+  if (!e.turrets.some(t => t.alive)) {
+    const pulse = .6 + .4 * Math.sin(e.t * 9);
+    ctx.fillStyle = `rgba(255,220,80,${pulse})`;
+    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 18 * US;
+    ctx.beginPath(); ctx.arc(0, -h * .4, Math.max(2.5, w * .06 * (1 + pulse * .15)), 0, TAU); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  /* hp bar */
+  const bw = w * .85, bh = Math.max(2, h * .05);
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(-bw / 2, -h * 1.1, bw, bh);
+  const aliveT = e.turrets.filter(t => t.alive).length;
+  if (aliveT) {
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i < aliveT ? '#ff9e3d' : 'rgba(80,50,20,.6)';
+      ctx.fillRect(-bw / 2 + i * (bw / 3) + 1, -h * 1.1, bw / 3 - 2, bh);
+    }
+  } else {
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(-bw / 2, -h * 1.1, bw * (e.hp / e.hpMax), bh);
+  }
+  ctx.restore();
+}
 function drawPickup(p) {
   const bob = Math.sin(p.t * 3.4) * 45;
   const s = proj(p.x, 160 + bob, p.z);
-  const r = 165 * s.s * SC;
-  const COL = { W: '#ffe95c', N: '#ff2d95', HP: '#3dff88', SH: '#41c8ff' }[p.kind];
+  const r = clamp(165 * s.s * SC, 3, 42 * US);
+  ctx.globalAlpha *= clamp((p.z - 350) / 650, 0, 1);   // fade as it whooshes past
+  const COL = { W: '#ffe95c', N: '#ff2d95', HP: '#3dff88', SH: '#41c8ff', M: '#ff9e3d' }[p.kind];
   ctx.save();
   ctx.translate(s.x, s.y);
   ctx.strokeStyle = COL; ctx.lineWidth = Math.max(1.2, r * .13);
@@ -1160,6 +1500,14 @@ function renderBulletsFx() {
     ctx.lineWidth = clamp(30 * p1.s * SC, 1, 2.2 * US);
     ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
   }
+  for (const m of missiles) {
+    const p = proj(m.x, 110, m.z);
+    const r = clamp(140 * p.s * SC, 2, 8 * US);
+    ctx.fillStyle = 'rgba(255,210,120,.95)';
+    ctx.shadowColor = '#ff9e3d'; ctx.shadowBlur = 10 * US;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
   for (const b of ebullets) {
     const prog = clamp(1 - (b.z - PZ) / (b.z0 - PZ), 0, 1);
     const y = lerp(b.y0, 80, prog);
@@ -1186,7 +1534,8 @@ function renderBike() {
   ctx.rotate(lean);
 
   /* shadow + underglow */
-  glowEllipse(0, 2 * u, 55 * u, 10 * u, G.nitroOn ? '#ff2d95' : '#2ee6ff', .55 + rnd(.1));
+  glowEllipse(0, 2 * u, 55 * u, 10 * u,
+    G.odOn ? '#ffd700' : G.nitroOn ? '#ff2d95' : '#2ee6ff', (G.odOn ? .75 : .55) + rnd(.1));
   ctx.fillStyle = 'rgba(0,0,0,.55)';
   ctx.beginPath(); ctx.ellipse(0, 2 * u, 42 * u, 7 * u, 0, 0, TAU); ctx.fill();
 
@@ -1327,13 +1676,14 @@ function renderSpeedFx() {
     ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 6, ry + 18 + sp * 16); ctx.stroke();
   }
   /* radial speed lines */
-  if (sp > 0.55 || G.nitroOn) {
-    const n = G.nitroOn ? 26 : 12;
-    const inten = G.nitroOn ? .28 : (sp - .55) * .3;
+  const boost = G.nitroOn || G.odOn;
+  if (sp > 0.55 || boost) {
+    const n = boost ? 26 : 12;
+    const inten = boost ? .28 : (sp - .55) * .3;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU + (i % 2) * .1 + Math.sin(i * 31.7) * .2;
       if (Math.abs(Math.sin(a)) < 0.22) continue;   // keep the road view clear
-      const r0 = H * rnd(.34, .48), r1 = r0 + rnd(60, 200) * US * (G.nitroOn ? 1.6 : 1);
+      const r0 = H * rnd(.34, .48), r1 = r0 + rnd(60, 200) * US * (boost ? 1.6 : 1);
       ctx.strokeStyle = `rgba(255,255,255,${inten * rnd(.4, 1)})`;
       ctx.lineWidth = rnd(1, 2.6) * US;
       ctx.beginPath();
@@ -1413,17 +1763,31 @@ function renderHud() {
       G.nitroOn ? '#fff' : '#ff2d95', 'rgba(50,8,40,.75)');
     neonText('NITRO [SHIFT]', W - 24 * u - 200 * u, H - 72 * u, 11 * u, '#f6a');
 
+    /* overdrive meter */
+    const obw = 170 * u;
+    ctx.fillStyle = 'rgba(60,40,5,.7)';
+    ctx.fillRect(W / 2 - obw / 2, H - 66 * u, obw, 7 * u);
+    if (G.od > 0) {
+      ctx.fillStyle = G.odOn ? '#ffd700' : 'rgba(255,180,40,.85)';
+      ctx.shadowColor = '#ffd700'; ctx.shadowBlur = (G.odOn ? 16 : 6) * US;
+      ctx.fillRect(W / 2 - obw / 2, H - 66 * u, obw * G.od / 100, 7 * u);
+      ctx.shadowBlur = 0;
+    }
+    if (G.odOn) neonText('⚡ OVERDRIVE ⚡', W / 2, H - 72 * u, 13 * u, '#ffd700', 'center', 12);
+
     /* speed */
     const kmh = Math.round(G.speed * 0.075);
-    const spSize = (G.nitroOn ? 40 : 32) * u;
-    neonText(String(kmh), W / 2, H - 34 * u, spSize, G.nitroOn ? '#ff2d95' : '#fff', 'center', 14);
+    const spSize = ((G.nitroOn || G.odOn) ? 40 : 32) * u;
+    neonText(String(kmh), W / 2, H - 34 * u, spSize,
+      G.odOn ? '#ffd700' : G.nitroOn ? '#ff2d95' : '#fff', 'center', 14);
     neonText('KM/H', W / 2, H - 16 * u, 11 * u, '#a9c', 'center');
 
-    /* weapon pips */
+    /* weapon pips + missile count */
     for (let i = 0; i < 4; i++) {
       ctx.fillStyle = i < G.wlvl ? '#ffe95c' : 'rgba(120,110,60,.35)';
       ctx.fillRect(24 * u + i * 16 * u, H - 96 * u, 11 * u, 6 * u);
     }
+    if (G.msl > 0) neonText('▲ MSL ' + G.msl, 96 * u, H - 90 * u, 12 * u, '#ff9e3d');
   }
 
   /* banner */
@@ -1459,6 +1823,7 @@ function renderTitle() {
 
   neonText('◄ ► / A D  STEER      SPACE  BLASTERS      SHIFT  NITRO', W / 2, H * .62, 13 * u, '#9ad', 'center');
   neonText('DODGE TRAFFIC · BLAST RIVALS · CHAIN COMBOS · NEVER SLOW DOWN', W / 2, H * .67, 12 * u, '#b7f', 'center');
+  neonText('FILL THE GOLD METER FOR OVERDRIVE · GRAB [M] FOR HOMING MISSILES · SURVIVE THE WARLORD', W / 2, H * .71, 11 * u, '#d9b', 'center');
   if (G.best > 0) neonText('BEST RUN  ' + G.best, W / 2, H * .74, 15 * u, '#ff2d95', 'center');
   neonText('[M] SOUND · [P] PAUSE', W / 2, H * .95, 10 * u, '#557', 'center');
 }
@@ -1515,6 +1880,7 @@ let lastT = 0;
 function frame(ts) {
   const dt = lastT ? Math.min((ts - lastT) / 1000, 0.1) : 0.016;
   lastT = ts;
+  if (AC) while (beatQ.length && beatQ[0] <= AC.currentTime) { G.beatT = 1; beatQ.shift(); }
   update(dt);
   render();
   /* engine audio follows speed */
