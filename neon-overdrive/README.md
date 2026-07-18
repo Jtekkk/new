@@ -49,10 +49,13 @@ traffic gets armored, and the soundtrack's BPM rises with every wave.
   billboards are pre-rendered to offscreen canvases at boot.
 - Segment-based pseudo-3D road with procedural curves (layered sines),
   curve-following ground grid and roadside holo-billboards.
-- Procedural audio via Web Audio: 138 BPM synth bass/kick/hat loop that gains
-  an arp lead as waves rise, plus engine drone pitched by speed and synthesized
-  laser/explosion/pickup SFX. No audio files. The ground grid, road edges and
-  sun glow all pulse in sync with the kick drum.
+- Soundtrack: an embedded MP3 ("Flower Coffee People", base64-encoded so the
+  game stays one file) played through Web Audio with live FFT beat detection —
+  the ground grid, road edges and sun glow pulse to the track's actual bass
+  hits, and playback rate ramps subtly as waves climb. If the track ever fails
+  to play, the original procedural 138 BPM synth loop kicks in as a fallback.
+  All SFX (lasers, explosions, klaxons, combo stingers, engine drone pitched
+  by speed) remain fully synthesized — no other audio files.
 - Juice: screenshake, hitstop, slow-mo death, chromatic glitch text, particle
   explosions, expanding shockwave rings, radial nitro speedlines, CRT scanline
   + vignette overlay.
