@@ -233,7 +233,27 @@ const sfx = {
   pick()  { blip('sine', 660, 660, .07, .2); blip('sine', 990, 990, .09, .2, .07); },
   near()  { blip('sine', 1400, 1800, .06, .08); },
   nitro() { noise(.5, .25, 2600, 'highpass'); },
-  ui()    { blip('square', 440, 880, .06, .15); }
+  ui()    { blip('square', 440, 880, .06, .15); },
+  /* doppler whoosh for near misses / threaded gates */
+  whoosh() { noise(.25, .3, 900, 'bandpass'); blip('sine', 300, 900, .18, .1); },
+  /* metallic zap when the shield eats a hit */
+  shieldHit() { blip('triangle', 1200, 300, .15, .25); noise(.1, .15, 3000, 'highpass'); },
+  /* kill confirm — pitch rises with the combo counter */
+  killTick(combo) { blip('square', 500 + Math.min(combo, 20) * 55, 900 + combo * 55, .06, .13); },
+  /* combo milestone arpeggio, n notes */
+  stinger(n) { for (let i = 0; i < n; i++) blip('square', 330 * Math.pow(1.25, i), 330 * Math.pow(1.25, i), .09, .16, i * .07); },
+  wave()  { blip('square', 440, 440, .1, .18); blip('square', 660, 660, .14, .18, .12); },
+  zone()  { for (let i = 0; i < 4; i++) blip('sine', 520 + i * 130, 520 + i * 130, .12, .15, i * .09); },
+  /* boss klaxon */
+  alarm() { for (let i = 0; i < 3; i++) { blip('square', 620, 620, .12, .2, i * .3); blip('square', 415, 415, .12, .2, i * .3 + .15); } },
+  /* turret destroyed */
+  crunch() { noise(.25, .4, 500); blip('sawtooth', 240, 60, .2, .3); blip('sine', 880, 1760, .12, .15, .12); },
+  thunder() { noise(1.2, .16, 160); },
+  rumble() { noise(.1, .12, 240); },
+  alarmLow() { blip('sine', 880, 660, .09, .18); },
+  ignition() { blip('sawtooth', 60, 320, .7, .25); noise(.4, .15, 800, 'lowpass', .1); },
+  gameover() { blip('sawtooth', 400, 40, 1.2, .3); for (let i = 0; i < 3; i++) blip('square', 220 - i * 60, 60, .5, .15, .3 + i * .25); },
+  odEnd() { blip('sine', 800, 120, .35, .2); }
 };
 
 /* 16-step synth loop; intensity rises with wave */
@@ -241,7 +261,7 @@ const BASS = [55, 0, 55, 0, 55, 0, 49, 0, 55, 0, 65.4, 0, 82.4, 0, 73.4, 0];
 const ARP  = [220, 261.6, 329.6, 440, 392, 329.6, 261.6, 329.6];
 function musicTick() {
   if (!AC || muted) return;
-  const stepDur = 60 / 138 / 2;
+  const stepDur = 60 / (138 + Math.min(G.wave * 2, 28)) / 2;   // music speeds up as waves climb
   while (musNext < AC.currentTime + 0.12) {
     const s = musStep % 16, when = musNext - AC.currentTime;
     const f = BASS[s];
@@ -315,7 +335,7 @@ const G = {
   hurtT: 0, deadT: 0, freeze: 0, flashA: 0,
   banner: null, bannerT: 0,
   shake: 0, boltT: 0, bolt: null, beatT: 0, zone: 0,
-  od: 0, odOn: false, odT: 0, msl: 0, mslCd: 0,
+  od: 0, odOn: false, odT: 0, msl: 0, mslCd: 0, rumbleT: 0, lowT: 0,
   tCar: 1, tMine: 3, tBiker: 5, tDrone: 8, tHunter: 20, tPick: 9, tRazor: 6, tGate: 9
 };
 try { G.best = +localStorage.getItem('nov_best') || 0; } catch (e) {}
@@ -339,11 +359,12 @@ function startRun() {
     wlvl: 1, fireCd: 0, score: 0, dist: 0,
     combo: 0, comboT: 0, maxCombo: 0, kills: 0,
     wave: 1, waveT: 0, hurtT: 0, deadT: 0, freeze: 0,
-    od: 0, odOn: false, odT: 0, msl: 0, mslCd: 0,
+    od: 0, odOn: false, odT: 0, msl: 0, mslCd: 0, rumbleT: 0, lowT: 0,
     tCar: .8, tMine: 4, tBiker: 3, tDrone: 9, tHunter: 24, tPick: 8, tRazor: 7, tGate: 10
   });
   enemies = []; bullets = []; ebullets = []; pickups = []; pops = []; missiles = [];
   if (G.zone !== 0) { G.zone = 0; THEME = THEMES[0]; buildSun(); }
+  sfx.ignition();
   spawnCar(6000); spawnCar(11000); spawnCar(16000);
   showBanner('WAVE 01', 'BLAST EVERYTHING');
 }
@@ -380,7 +401,7 @@ function proj(xn, yW, dz) {
 const LANES = [-0.66, -0.22, 0.22, 0.66];
 function spawnCar(z = 20000) {
   enemies.push({ type: 'car', x: pick(LANES) + rnd(-.06, .06), z, spd: rnd(1150, 1550),
-    vx: rnd(-.02, .02), hp: 5, w: .15, t: rnd(TAU), flashT: 0,
+    vx: rnd(-.02, .02), hp: G.wave >= 8 ? 7 : 5, w: .15, t: rnd(TAU), flashT: 0,
     hue: pick(['#2ee6ff', '#ff9e3d', '#3dff88', '#b44dff']) });
 }
 function spawnMine() {
@@ -401,14 +422,16 @@ function spawnHunter() {
     tz: 3300, fireCd: 2, burst: 0, burstCd: 0, t: 0, flashT: 0,
     hpMax: 26 + G.wave * 3 });
   showBanner('⚠ HUNTER ⚠', 'HEAVY GUNSHIP ON YOUR SIX');
+  sfx.alarm();
 }
 function spawnRazor(off = 0) {
   enemies.push({ type: 'razor', x: clamp(G.px + off, -1, 1), z: 16500, hp: 1, w: .1,
     t: rnd(TAU), flashT: 0 });
 }
 function spawnGate() {
-  enemies.push({ type: 'gate', x: 0, gapX: rnd(-.55, .55), gapW: .44, z: 20500, hp: 3, w: 1.2,
-    t: 0, flashT: 0 });
+  enemies.push({ type: 'gate', x: 0, gapX: rnd(-.55, .55),
+    gapW: clamp(.46 - G.wave * .008, .32, .46),      // gaps narrow as waves climb
+    z: 20500, hp: 3, w: 1.2, t: 0, flashT: 0 });
 }
 function spawnBoss() {
   const hp = 30 + G.wave * 2;
@@ -418,6 +441,7 @@ function spawnBoss() {
                { dx: .3,  hp: 10, alive: true, cd: rnd(2, 3) } ],
     fireCd: 2, t: 0, flashT: 0 });
   showBanner('⚠ WARLORD ⚠', 'DESTROY THE TURRETS');
+  sfx.alarm();
 }
 function spawnPickup(kind, x, z) {
   pickups.push({ kind, x, z, spd: 1000, t: rnd(TAU) });
@@ -469,9 +493,10 @@ function addScore(base, sx, sy) {
 function onKill(e, sx, sy) {
   G.combo++; G.comboT = 2.6; G.maxCombo = Math.max(G.maxCombo, G.combo); G.kills++;
   G.nitro = clamp(G.nitro + 6, 0, 100);
-  if (G.combo === 5)  showBanner('RAMPAGE', 'x5 COMBO');
-  if (G.combo === 10) showBanner('CARNAGE', 'x10 COMBO');
-  if (G.combo === 15) showBanner('UNSTOPPABLE', 'MAXIMUM CHAOS');
+  sfx.killTick(G.combo);
+  if (G.combo === 5)  { showBanner('RAMPAGE', 'x5 COMBO'); sfx.stinger(3); }
+  if (G.combo === 10) { showBanner('CARNAGE', 'x10 COMBO'); sfx.stinger(4); }
+  if (G.combo === 15) { showBanner('UNSTOPPABLE', 'MAXIMUM CHAOS'); sfx.stinger(5); }
   const table = { car: 300, biker: 200, drone: 250, mine: 100, hunter: 1500,
     razor: 150, gate: 250, boss: 5000 };
   addScore(table[e.type] || 100, sx, sy);
@@ -523,6 +548,7 @@ function bossDamage(e, dmg, hx) {
         G.combo++; G.comboT = 2.6; G.maxCombo = Math.max(G.maxCombo, G.combo);
         addScore(500, q.x, q.y - 20 * US);
         popup('TURRET DOWN', q.x, q.y - 46 * US, '#ff9e3d', 18);
+        sfx.crunch();
         G.od = clamp(G.od + 9, 0, 100);
         if (!e.turrets.some(t => t.alive)) showBanner('CORE EXPOSED', 'HIT THE REACTOR');
       }
@@ -536,7 +562,7 @@ function hurt(dmg, why) {
   if (G.state !== 'play' || G.odOn) return;
   if (G.shield > 0) {
     G.shield = Math.max(0, G.shield - dmg);
-    sfx.hit(); G.hurtT = .18; G.shake += 8 * US;
+    sfx.shieldHit(); G.hurtT = .18; G.shake += 8 * US;
     popup('SHIELD', W / 2, H * .6, '#41c8ff', 20);
     return;
   }
@@ -546,6 +572,7 @@ function hurt(dmg, why) {
 }
 function die() {
   G.state = 'dying'; G.deadT = 0;
+  sfx.gameover();
   const bx = W / 2, by = H * 0.88;
   explode(bx, by, 2.2, ['#ff2d95', '#ffe95c', '#2ee6ff', '#fff'], true);
   explode(bx + 40 * US, by - 30 * US, 1.5, ['#ff9e3d', '#ff2d95', '#fff'], true);
@@ -581,6 +608,8 @@ function update(rawDt) {
   if (G.nitroOn) { G.nitro -= 26 * dt; if (Math.random() < .3) sfxNitroTick(); }
   else G.nitro = clamp(G.nitro + 3.5 * dt, 0, 100);
 
+  /* top speed climbs continuously with distance ridden (plus a wave kicker) */
+  if (G.state === 'play') G.maxSpeed = Math.min(5400, 2650 + G.dist * 0.0055 + G.wave * 60);
   const targetSpeed = (G.maxSpeed) * (G.nitroOn ? 1.55 : 1);
   G.speed = lerp(G.speed, G.state === 'play' ? targetSpeed : 0, dt * (G.speed < targetSpeed ? 0.55 : 2));
   G.camZ += G.speed * dt;
@@ -589,7 +618,7 @@ function update(rawDt) {
 
   if (G.state === 'play') {
     /* steering physics */
-    const steerPow = 4.6 * (0.55 + 0.45 * (G.speed / 4300));
+    const steerPow = 4.6 * (0.55 + 0.45 * (G.speed / 5400));
     G.pvx += clamp(axis, -1, 1) * steerPow * dt;
     G.pvx *= Math.pow(0.0008, dt);                       // strong friction
     G.pvx = clamp(G.pvx, -1.9, 1.9);
@@ -603,6 +632,8 @@ function update(rawDt) {
     if (Math.abs(G.px) > 1.02) {
       G.speed *= Math.pow(0.6, dt);
       G.shake = Math.max(G.shake, 3.5 * US);
+      G.rumbleT -= dt;
+      if (G.rumbleT <= 0) { sfx.rumble(); G.rumbleT = .13; }
       if (Math.random() < 0.5) {
         const p = proj(G.px + (G.px > 0 ? .08 : -.08), 0, PZ);
         addParts(2, p.x, p.y, 220 * US, ['#ffe95c', '#ff9e3d'], .4, 900, 3 * US);
@@ -629,17 +660,17 @@ function update(rawDt) {
     G.waveT += dt;
     if (G.waveT > 17) {
       G.waveT = 0; G.wave++;
-      G.maxSpeed = Math.min(4300, 2900 + G.wave * 110);
       const zone = ((G.wave - 1) / 3 | 0) % 3;
       if (zone !== G.zone) {
         G.zone = zone; THEME = THEMES[zone]; buildSun();
         G.flashA = Math.max(G.flashA, .35);
         showBanner('ENTERING ' + THEME.name, 'WAVE ' + String(G.wave).padStart(2, '0'));
+        sfx.zone();
       } else {
         showBanner('WAVE ' + String(G.wave).padStart(2, '0'), WAVE_SUBS[Math.min(G.wave - 2, WAVE_SUBS.length - 1)]);
+        sfx.wave();
       }
       if (G.wave % 5 === 0) spawnBoss();
-      sfx.ui();
     }
 
     /* overdrive */
@@ -652,32 +683,36 @@ function update(rawDt) {
     }
     if (G.odOn) {
       G.odT -= dt; G.od = clamp(100 * G.odT / 6.5, 0, 100);
-      if (G.odT <= 0) { G.odOn = false; G.od = 0; }
+      if (G.odT <= 0) { G.odOn = false; G.od = 0; sfx.odEnd(); }
     }
 
     /* spawning */
     G.tCar -= dt; G.tMine -= dt; G.tBiker -= dt; G.tDrone -= dt; G.tHunter -= dt;
     G.tPick -= dt; G.tRazor -= dt; G.tGate -= dt;
-    if (G.tCar   <= 0) { spawnCar();  G.tCar   = clamp(2.6 - G.wave * .16, 1.0, 9) * rnd(.7, 1.3); }
-    if (G.tMine  <= 0) { spawnMine(); G.tMine  = clamp(4.5 - G.wave * .3, 1.5, 9) * rnd(.7, 1.3); }
-    if (G.wave >= 2 && G.tBiker <= 0 && enemies.filter(e => e.type === 'biker').length < 4)
-      { spawnBiker(); G.tBiker = clamp(6.5 - G.wave * .35, 2.2, 9) * rnd(.7, 1.3); }
+    if (G.tCar   <= 0) { spawnCar();  G.tCar   = clamp(2.6 - G.wave * .16, .55, 9) * rnd(.7, 1.3); }
+    if (G.tMine  <= 0) { spawnMine(); G.tMine  = clamp(4.5 - G.wave * .3, 1.0, 9) * rnd(.7, 1.3); }
+    if (G.wave >= 2 && G.tBiker <= 0 && enemies.filter(e => e.type === 'biker').length < Math.min(4 + (G.wave / 4 | 0), 7))
+      { spawnBiker(); G.tBiker = clamp(6.5 - G.wave * .35, 1.6, 9) * rnd(.7, 1.3); }
     if (G.wave >= 2 && G.tRazor <= 0) {
       spawnRazor();
       if (G.wave >= 5 && Math.random() < .5) spawnRazor(rnd(-.4, .4));
-      G.tRazor = clamp(6.5 - G.wave * .3, 2.8, 9) * rnd(.75, 1.3);
+      if (G.wave >= 8 && Math.random() < .4) spawnRazor(rnd(-.6, .6));
+      G.tRazor = clamp(6.5 - G.wave * .3, 1.8, 9) * rnd(.75, 1.3);
     }
-    if (G.wave >= 3 && G.tDrone <= 0 && enemies.filter(e => e.type === 'drone').length < 3)
-      { spawnDrone(); G.tDrone = clamp(7.5 - G.wave * .4, 2.6, 9) * rnd(.7, 1.3); }
+    if (G.wave >= 3 && G.tDrone <= 0 && enemies.filter(e => e.type === 'drone').length < Math.min(3 + (G.wave / 5 | 0), 5))
+      { spawnDrone(); G.tDrone = clamp(7.5 - G.wave * .4, 1.8, 9) * rnd(.7, 1.3); }
     if (G.wave >= 3 && G.tGate <= 0 && !enemies.some(e => e.type === 'gate' && e.z > 12000))
-      { spawnGate(); G.tGate = clamp(10 - G.wave * .3, 5, 12) * rnd(.8, 1.25); }
+      { spawnGate(); G.tGate = clamp(10 - G.wave * .3, 3.5, 12) * rnd(.8, 1.25); }
     if (G.wave >= 4 && G.tHunter <= 0 && !enemies.some(e => e.type === 'hunter' || e.type === 'boss'))
-      { spawnHunter(); G.tHunter = 26; }
+      { spawnHunter(); G.tHunter = clamp(26 - G.wave, 14, 26); }
     if (G.tPick <= 0) { spawnPickup(pick(PICK_KINDS), rnd(-.8, .8), 20000); G.tPick = rnd(9, 15); }
 
     /* combo timer */
     if (G.comboT > 0) { G.comboT -= dt; if (G.comboT <= 0) G.combo = 0; }
     G.hurtT -= dt;
+
+    /* low hull warning */
+    if (G.hp < 25) { G.lowT -= dt; if (G.lowT <= 0) { sfx.alarmLow(); G.lowT = .9; } }
   }
 
   if (G.state === 'dying') {
@@ -703,6 +738,7 @@ function update(rawDt) {
     G.boltT = rnd(6, 14);
     G.bolt = { t: .14, x: rnd(.1, .9) * W };
     G.flashA = Math.max(G.flashA, .1);
+    sfx.thunder();
   }
   if (G.bolt) { G.bolt.t -= dt; if (G.bolt.t <= 0) G.bolt = null; }
 }
@@ -734,7 +770,7 @@ function updateEnemies(dt) {
         e.x = clamp(e.bx + Math.sin(e.t * e.wf) * e.wa, -1.05, 1.05);
         e.fireCd -= dt;
         if (e.fireCd <= 0 && e.z > 1400 && e.z < 9000 && G.state === 'play') {
-          e.fireCd = rnd(1.4, 2.6);
+          e.fireCd = rnd(1.4, 2.6) * clamp(1 - G.wave * .035, .5, 1);
           fireAt(e, 90);
         }
         break;
@@ -743,7 +779,7 @@ function updateEnemies(dt) {
         e.z += (e.tz - e.z) * 0.8 * dt;
         e.x = Math.sin(e.t * e.sf + e.ph) * 0.9;
         e.fireCd -= dt;
-        if (e.fireCd <= 0 && G.state === 'play') { e.fireCd = rnd(1.1, 2.2); fireAt(e, e.y); }
+        if (e.fireCd <= 0 && G.state === 'play') { e.fireCd = rnd(1.1, 2.2) * clamp(1 - G.wave * .03, .55, 1); fireAt(e, e.y); }
         break;
       case 'hunter':
         e.z += (e.tz - e.z) * 0.6 * dt;
@@ -793,7 +829,7 @@ function updateEnemies(dt) {
           G.score += 100; G.nitro = clamp(G.nitro + 10, 0, 100); G.od = clamp(G.od + 8, 0, 100);
           const p = proj(e.gapX, 200, PZ + 150);
           popup('THREADED +100', p.x, p.y, '#3dff88', 17);
-          sfx.near();
+          sfx.whoosh();
         }
         e.dead = true;
         continue;
@@ -817,7 +853,7 @@ function updateEnemies(dt) {
         G.score += 50; G.nitro = clamp(G.nitro + 8, 0, 100); G.od = clamp(G.od + 7, 0, 100);
         const p = proj(e.x, 0, PZ + 100);
         popup('NEAR MISS +50', p.x, p.y - 30 * US, '#3dff88', 15);
-        sfx.near();
+        sfx.whoosh();
       }
     }
 
@@ -869,7 +905,7 @@ function updateBullets(dt) {
 
   for (let i = ebullets.length - 1; i >= 0; i--) {
     const b = ebullets[i];
-    b.z -= (2900 + G.speed * 0.3) * dt;
+    b.z -= (2900 + G.speed * 0.3 + Math.min(G.wave * 35, 500)) * dt;
     b.x += b.vx * dt;
     if (b.z <= PZ && b.z > PZ - 500 && G.state === 'play' && Math.abs(b.x - G.px) < 0.14) {
       hurt(10);
@@ -1663,7 +1699,7 @@ function renderParticles() {
 
 /* speed streaks + rain */
 function renderSpeedFx() {
-  const sp = G.speed / 4300;
+  const sp = G.speed / 5400;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   /* neon rain */

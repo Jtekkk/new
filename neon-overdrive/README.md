@@ -37,6 +37,12 @@ Sector**, each recoloring the sky, sun, grid and road. Pickups: `W` weapon
 level (up to quad-fire), `M` +8 homing missiles, `N` nitro, `HP` hull,
 `SH` shield. Best score persists in `localStorage`.
 
+Your top speed climbs continuously with distance ridden — from ~200 km/h at
+the start to a screaming 405 km/h — and the difficulty climbs with it: spawn
+rates keep tightening deep into the run, more bikers and drones gang up at
+once, enemies fire faster and their bolts fly faster, laser-gate gaps narrow,
+traffic gets armored, and the soundtrack's BPM rises with every wave.
+
 ## Tech
 
 - Single-file HTML5 canvas, ~60 fps, no assets fetched — skyline, sun and
